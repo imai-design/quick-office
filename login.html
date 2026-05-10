@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ログイン - Quick Office</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+JP:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div class="login-shell">
+    <div class="login-card">
+      <div class="logo"><span class="logo-mark">Q</span>Quick Office</div>
+      <p class="login-tagline">オフィスに、すぐ届く</p>
+      <h1>ログイン</h1>
+      <form id="login-form" data-qo="login-form" novalidate>
+        <div class="field">
+          <label for="email">メールアドレス</label>
+          <input type="email" id="email" data-qo="email" autocomplete="email" placeholder="you@company.co.jp" />
+        </div>
+        <div class="field">
+          <label for="password">パスワード</label>
+          <input type="password" id="password" data-qo="password" autocomplete="current-password" placeholder="••••••••" />
+        </div>
+        <div class="field-error" id="login-error" data-qo="login-error" role="alert"></div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg" data-qo="login-submit">ログイン</button>
+        <p class="login-hint">※デモ用ダミー認証です。任意のメアドとパスワードでログインできます。</p>
+      </form>
+    </div>
+  </div>
+
+  <script src="js/data.js"></script>
+  <script src="js/storage.js"></script>
+  <script src="js/auth.js"></script>
+  <script>
+    if (QOAuth.isLoggedIn()) {
+      window.location.replace('index.html');
+    }
+
+    const form = document.getElementById('login-form');
+    const errorEl = document.getElementById('login-error');
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      errorEl.textContent = '';
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      const result = QOAuth.login(email, password);
+      if (!result.ok) {
+        errorEl.textContent = result.message;
+        return;
+      }
+      window.location.href = 'index.html';
+    });
+  </script>
+</body>
+</html>
