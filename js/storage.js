@@ -6,7 +6,18 @@ const STORAGE_KEYS = {
   USER: 'qo_user',
   ORDER_SEQ: 'qo_order_seq',
   CHECKOUT: 'qo_checkout',
+  ISSUER: 'qo_issuer',
 };
+
+const QO_ISSUER_FIELDS = [
+  { key: 'companyName', label: '会社名 / 屋号', required: true,  placeholder: '例: 株式会社サンプル' },
+  { key: 'representative', label: '代表者名',     required: true,  placeholder: '例: 山田 太郎' },
+  { key: 'postalCode',  label: '郵便番号',         required: false, placeholder: '例: 100-0001' },
+  { key: 'address',     label: '住所',             required: false, placeholder: '例: 東京都千代田区千代田1-1-1' },
+  { key: 'tel',         label: 'TEL',              required: false, placeholder: '例: 03-1234-5678' },
+  { key: 'email',       label: 'Email',            required: false, placeholder: '例: contact@example.com' },
+  { key: 'invoiceNo',   label: '登録番号(インボイス)', required: false, placeholder: '例: T1234567890123', help: 'Tから始まる13桁の数字' },
+];
 
 const QOStorage = {
   // ---- Products ----
@@ -152,6 +163,22 @@ const QOStorage = {
       if (p) p.stockQty = Math.max(0, (p.stockQty || 0) + it.quantity);
     });
     localStorage.setItem(STORAGE_KEYS.PRODUCTS, JSON.stringify(products));
+  },
+
+  // ---- Issuer (領収書 発行元情報) ----
+  getIssuer() {
+    const raw = localStorage.getItem(STORAGE_KEYS.ISSUER);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch (_) { return null; }
+  },
+  saveIssuer(data) {
+    localStorage.setItem(STORAGE_KEYS.ISSUER, JSON.stringify(data));
+  },
+  // 必須2項目(会社名・代表者名)が埋まっていれば「設定済み」とみなす
+  isIssuerConfigured() {
+    const i = this.getIssuer();
+    if (!i) return false;
+    return !!(i.companyName && i.companyName.trim() && i.representative && i.representative.trim());
   },
 
   // ---- User ----

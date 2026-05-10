@@ -36,6 +36,9 @@ const QOUI = {
               placeholder="商品名・型番で検索…" value="${escapeHtml(currentSearch)}" />
           </div>` : '<div style="flex:1"></div>'}
         <div class="header-actions">
+          <a href="settings.html" class="btn btn-ghost" data-qo="goto-settings" aria-label="発行元情報">
+            <span aria-hidden="true">🏢</span> 発行元情報${!QOStorage.isIssuerConfigured() ? '<span class="badge-dot" title="未設定" aria-label="未設定"></span>' : ''}
+          </a>
           <a href="orders.html" class="btn btn-ghost" data-qo="goto-orders" aria-label="注文履歴">
             <span aria-hidden="true">📋</span> 注文履歴
           </a>
@@ -649,7 +652,7 @@ function initOrderCompletePage() {
   `;
 
   document.getElementById('dl-receipt').addEventListener('click', () => {
-    QOReceipt.download(order);
+    QOReceipt.requestDownload(order, { returnTo: window.location.href });
   });
 }
 
@@ -672,7 +675,7 @@ function initOrdersPage() {
       // ライブラリの読み込み完了を待ってからDL
       const tryDl = () => {
         if (typeof html2canvas !== 'undefined' && typeof window.jspdf !== 'undefined') {
-          QOReceipt.download(target);
+          QOReceipt.requestDownload(target, { returnTo: window.location.href });
         } else {
           setTimeout(tryDl, 200);
         }
@@ -730,6 +733,146 @@ function initOrdersPage() {
     if (!btn) return;
     const id = btn.dataset.receipt;
     const order = QOStorage.getOrderById(id);
-    if (order) QOReceipt.download(order);
+    if (order) QOReceipt.requestDownload(order, { returnTo: window.location.href });
+  });
+}
+
+/* ===== 発行元情報 設定ページ ===== */
+function initSettingsPage() {
+  if (!QOAuth.requireLogin()) return;
+  QOUI.renderHeader({ showSearch: false });
+
+  const root = document.getElementById('settings-root');
+  const current = QOStorage.getIssuer() || {};
+
+  // ?next=...&return=... があれば「保存後に戻る」
+  const params = new URLSearchParams(window.location.search);
+  const returnTo = params.get('return');
+  const wasUnconfigured = !QOStorage.isIssuerConfigured();
+
+  root.innerHTML = `
+    <a href="index.html" class="back-link" data-qo="back">← 商品一覧に戻る</a>
+    <h1 class="page-title">発行元情報の設定</h1>
+    <p style="color:var(--color-text-soft);margin:-12px 0 var(--space-5);max-width:640px;font-size:13.5px;">
+      領収書PDFに記載される<strong>発行元の情報</strong>を入力してください。<br>
+      ここで入力した内容は、ブラウザの localStorage に保存され、領収書発行時に反映されます。
+    </p>
+
+    ${wasUnconfigured ? `
+      <div class="notice notice-warn" data-qo="notice-unconfigured" role="alert">
+        <span aria-hidden="true">⚠️</span> 発行元情報がまだ設定されていません。最低でも<strong>会社名</strong>と<strong>代表者名</strong>を入力してください。
+      </div>
+    ` : ''}
+
+    <div class="form-section">
+      <form id="issuer-form" data-qo="issuer-form" novalidate>
+        <div class="form-grid">
+          ${QO_ISSUER_FIELDS.map((f) => {
+            const fullCol = (f.key === 'address' || f.key === 'invoiceNo') ? 'field-full' : '';
+            return `
+            <div class="field ${fullCol}">
+              <label for="issuer-${f.key}">
+                ${escapeHtml(f.label)}${f.required ? ' <span style="color:var(--color-danger);">*</span>' : ''}
+              </label>
+              <input type="text" id="issuer-${f.key}" name="${f.key}" data-qo="issuer-${f.key}"
+                placeholder="${escapeHtml(f.placeholder || '')}"
+                value="${escapeHtml(current[f.key] || '')}" />
+              ${f.help ? `<span class="field-help">${escapeHtml(f.help)}</span>` : ''}
+            </div>
+          `;}).join('')}
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary btn-lg" data-qo="issuer-save">
+            <span aria-hidden="true">💾</span> 保存する
+          </button>
+          ${returnTo ? `<a href="${escapeHtml(returnTo)}" class="btn btn-outline btn-lg" data-qo="issuer-back">戻る</a>` : ''}
+          <button type="button" class="btn btn-ghost" data-qo="issuer-clear" id="issuer-clear">クリア</button>
+        </div>
+        <div class="field-error" id="issuer-error" role="alert" style="margin-top: var(--space-3);"></div>
+      </form>
+    </div>
+  `;
+
+  const form = document.getElementById('issuer-form');
+  const errorEl = document.getElementById('issuer-error');
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    errorEl.textContent = '';
+    const data = Object.fromEntries(new FormData(form).entries());
+    // バリデーション
+    if (!data.companyName?.trim()) {
+      errorEl.textContent = '会社名 / 屋号は必須です。';
+      document.getElementById('issuer-companyName').focus();
+      return;
+    }
+    if (!data.representative?.trim()) {
+      errorEl.textContent = '代表者名は必須です。';
+      document.getElementById('issuer-representative').focus();
+      return;
+    }
+    // インボイス番号: 入力があれば形式チェック(T+13桁)
+    if (data.invoiceNo && data.invoiceNo.trim()) {
+      const inv = data.invoiceNo.trim();
+      if (!/^T\d{13}$/.test(inv)) {
+        errorEl.textContent = '登録番号は「T」+ 13桁の数字で入力してください(例: T1234567890123)。';
+        document.getElementById('issuer-invoiceNo').focus();
+        return;
+      }
+    }
+    QOStorage.saveIssuer(data);
+    QOUI.toast('発行元情報を保存しました');
+    if (returnTo) {
+      setTimeout(() => { window.location.href = returnTo; }, 600);
+    } else {
+      // ヘッダーバッジを更新するため再描画
+      QOUI.renderHeader({ showSearch: false });
+    }
+  });
+
+  document.getElementById('issuer-clear').addEventListener('click', () => {
+    if (!confirm('入力中の値をすべてクリアします。よろしいですか?')) return;
+    QO_ISSUER_FIELDS.forEach((f) => {
+      const input = document.getElementById('issuer-' + f.key);
+      if (input) input.value = '';
+    });
+  });
+}
+
+/* ===== モーダル: 発行元未設定 警告 ===== */
+function showIssuerRequiredModal({ returnTo } = {}) {
+  // 既存があれば破棄
+  document.getElementById('qo-modal')?.remove();
+
+  const settingsHref = `settings.html${returnTo ? '?return=' + encodeURIComponent(returnTo) : ''}`;
+  const overlay = document.createElement('div');
+  overlay.id = 'qo-modal';
+  overlay.className = 'qo-modal-overlay';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  overlay.setAttribute('aria-labelledby', 'qo-modal-title');
+  overlay.innerHTML = `
+    <div class="qo-modal" data-qo="issuer-required-modal">
+      <div class="qo-modal-icon" aria-hidden="true">⚠️</div>
+      <h2 id="qo-modal-title">領収書の発行元情報が未設定です</h2>
+      <p>
+        領収書PDFには「会社名 / 屋号」「代表者名」など、<strong>発行元の情報</strong>を記載する必要があります。<br>
+        まずは発行元情報を入力してから、改めて領収書をダウンロードしてください。
+      </p>
+      <div class="qo-modal-actions">
+        <a href="${escapeHtml(settingsHref)}" class="btn btn-primary btn-lg" data-qo="goto-issuer-settings">
+          <span aria-hidden="true">🏢</span> 発行元情報を入力する
+        </a>
+        <button type="button" class="btn btn-ghost" data-qo="modal-close">閉じる</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const close = () => overlay.remove();
+  overlay.querySelector('[data-qo="modal-close"]').addEventListener('click', close);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.addEventListener('keydown', function onKey(e) {
+    if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
   });
 }

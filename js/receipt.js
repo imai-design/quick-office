@@ -1,12 +1,43 @@
 /* ===== 領収書 PDF ダウンロード =====
  * html2canvas で日本語入りHTMLを画像化 → jsPDF で PDF 化することで、
  * 日本語フォント埋め込みなしに文字化けを完全回避する。
- * 画像はテキストのみ(SVGアイコン含めない)で構築するためCORS問題は発生しない。
+ *
+ * requestDownload() = 発行元情報の未設定チェックを通してから download() へ
+ * download()        = 実際にPDFを生成する低レイヤー
  */
 const QOReceipt = {
   formatDate(iso) {
     const d = new Date(iso);
     return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  },
+
+  // 発行元情報未設定チェック → モーダル誘導 or download実行
+  requestDownload(order, opts = {}) {
+    if (!QOStorage.isIssuerConfigured()) {
+      if (typeof showIssuerRequiredModal === 'function') {
+        showIssuerRequiredModal({ returnTo: opts.returnTo });
+      } else {
+        alert('領収書の発行元情報が未設定です。settings.html で先に入力してください。');
+      }
+      return;
+    }
+    return this.download(order, opts);
+  },
+
+  buildIssuerBlock(issuer) {
+    if (!issuer) return '';
+    const lines = [];
+    if (issuer.companyName) lines.push(`<div class="corp">${escapeHtml(issuer.companyName)}</div>`);
+    if (issuer.representative) lines.push(`<div>代表者: ${escapeHtml(issuer.representative)}</div>`);
+    const addr = [issuer.postalCode ? `〒${escapeHtml(issuer.postalCode)}` : '', issuer.address ? escapeHtml(issuer.address) : '']
+      .filter(Boolean).join(' ');
+    if (addr) lines.push(`<div>${addr}</div>`);
+    const contacts = [];
+    if (issuer.tel)   contacts.push(`TEL: ${escapeHtml(issuer.tel)}`);
+    if (issuer.email) contacts.push(`Email: ${escapeHtml(issuer.email)}`);
+    if (contacts.length) lines.push(`<div>${contacts.join(' / ')}</div>`);
+    if (issuer.invoiceNo) lines.push(`<div>登録番号: ${escapeHtml(issuer.invoiceNo)}</div>`);
+    return lines.join('');
   },
 
   buildReceiptElement(order) {
@@ -15,13 +46,14 @@ const QOReceipt = {
     const tax = order.tax;
     const subtotal = order.subtotal;
     const shipTo = order.shipTo || {};
+    const issuer = QOStorage.getIssuer() || {};
 
     const html = `
       <h1>領 収 書</h1>
       <div class="receipt-stamp">領収<br>済</div>
       <div class="receipt-meta">
         <div><strong>発行日:</strong> ${issueDate}</div>
-        <div><strong>領収書番号:</strong> ${order.id}</div>
+        <div><strong>領収書番号:</strong> ${escapeHtml(order.id)}</div>
       </div>
 
       <div class="receipt-to">${escapeHtml(shipTo.company || order.user.displayName)} 御中</div>
@@ -64,10 +96,8 @@ const QOReceipt = {
       </div>
 
       <div class="receipt-footer">
-        <div class="corp">Quick Office 株式会社</div>
-        〒100-0001 東京都千代田区千代田1-1-1 Quick Office Tower 10F<br>
-        TEL: 03-XXXX-XXXX / Email: support@quick-office.example<br>
-        登録番号: T1234567890123
+        <div class="receipt-issuer-label">[発行元]</div>
+        ${this.buildIssuerBlock(issuer)}
       </div>
     `;
 
@@ -103,8 +133,8 @@ const QOReceipt = {
       const imgData = canvas.toDataURL('image/png');
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const pageWidth = pdf.internal.pageSize.getWidth();   // 210mm
-      const pageHeight = pdf.internal.pageSize.getHeight(); // 297mm
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
 
       const imgW = canvas.width;
       const imgH = canvas.height;
